@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/abcjs@6.2.0/dist/abcjs-basic-min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pitchy@4.0.5/dist/pitchy.min.js"></script>
+
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        }
+        
+        /* Custom Tuner Styles */
+        .tuner-meter {
+            position: relative;
+            width: 100%;
+            height: 20px;
+            background-color: #e0e7ff; /* bg-indigo-100 */
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .tuner-indicator {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 5px;
+            height: 100%;
+            background-color: #4f46e5; /* bg-indigo-600 */
+            border-radius: 99px;
+            transform: translateX(-50%) scaleX(0); /* Start hidden */
+            transition: transform 0.1s linear;
+            transform-origin: center;
+        }
+        /* Center "in-tune" line */
+        .tuner-meter::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background-color: rgba(0, 0, 0, 0.2);
+            transform: translateX(-50%);
+        }
+
+        /* Custom ABCJS Staff Styling */
+        .abcjs-container svg {
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-700 min-h-screen">
+
+    <div class="container mx-auto p-4 max-w-4xl">
+
+        <main class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+            <div id="staff-display" class="w-full"></div>
+        </main>
+
+        <div class="flex flex-wrap justify-center gap-3">
+            <button id="drone-toggle" class="px-5 py-2 bg-blue-500 text-white font-medium rounded-full shadow hover:bg-blue-600 transition-colors">
+                Play Tonic
+            </button>
+            <button id="tuner-toggle" class="px-5 py-2 bg-green-500 text-white font-medium rounded-full shadow hover:bg-green-600 transition-colors">
+                Start Tuner
+            </button>
+            <button id="settings-toggle" class="px-5 py-2 bg-gray-600 text-white font-medium rounded-full shadow hover:bg-gray-700 transition-colors">
+                Settings
+            </button>
+        </div>
+    </div>
+
+    <div id="tuner-bar" class="fixed bottom-0 left-0 right-0 bg-white p-4 shadow-inner border-t border-slate-200 hidden">
+        <div class="container mx-auto max-w-md">
+            <div class="flex items-center gap-4">
+                <div id="note-name" class="text-3xl font-bold w-16 text-center text-indigo-600">--</div>
+                <div class="tuner-meter flex-1">
+                    <div id="pitch-indicator" class="tuner-indicator"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-50 overflow-y-auto">
+        <div class="bg-white w-full max-w-lg p-6 rounded-lg shadow-xl relative my-8">
+            <button id="close-modal-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            <h2 class="text-2xl font-bold mb-6 text-slate-800">Exercise Settings</h2>
+            
+            <form id="settings-form" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="clef-select" class="block text-sm font-medium mb-1">Clef (音部記号 / ключ)</label>
+                        <select id="clef-select" class="w-full p-2 border border-slate-300 rounded-lg">
+                            <option value="treble" selected>Treble</option>
+                            <option value="bass">Bass</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="key-select" class="block text-sm font-medium mb-1">Key Signature (調号 / ключовий знак)</label>
+                        <select id="key-select" class="w-full p-2 border border-slate-300 rounded-lg">
+                            </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="time-sig-select" class="block text-sm font-medium mb-1">Time Signature (拍子記号 / розмір)</label>
+                        <select id="time-sig-select" class="w-full p-2 border border-slate-300 rounded-lg">
+                            <option value="4/4" selected>4/4</option>
+                            <option value="3/4">3/4</option>
+                            <option value="2/4">2/4</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="length-input" class="block text-sm font-medium mb-1">Measures (小節 / такт)</label>
+                        <input type="number" id="length-input" value="8" min="2" max="16" class="w-full p-2 border border-slate-300 rounded-lg">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-1">Note Durations (音価 / тривалість ноти)</label>
+                    <div id="duration-checks" class="flex flex-wrap gap-4 p-2 border border-slate-300 rounded-lg">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" value="1" class="rounded" checked> Eighths (8分音符)
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" value="2" class="rounded" checked> Quarters (4分音符)
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" value="4" class="rounded"> Halves (2分音符)
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-1">Allowed Scale Degrees (音度 / ступінь)</label>
+                    <div id="note-selection-checks" class="p-3 border border-slate-300 rounded-lg bg-slate-50 space-y-2">
+                        
+                        <div class="grid grid-cols-3 gap-2 items-center">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="C" class="rounded" checked> <span class="font-medium">1</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-red-600">
+                                <input type="checkbox" value="^C" class="rounded text-red-600"> ♯1
+                            </label>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2 text-blue-600">
+                                <input type="checkbox" value="_D" class="rounded text-blue-600"> ♭2
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="D" class="rounded" checked> <span class="font-medium">2</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-red-600">
+                                <input type="checkbox" value="^D" class="rounded text-red-600"> ♯2
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                             <label class="flex items-center gap-2 text-blue-600">
+                                <input type="checkbox" value="_E" class="rounded text-blue-600"> ♭3
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="E" class="rounded" checked> <span class="font-medium">3</span>
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="F" class="rounded"> <span class="font-medium">4</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-red-600">
+                                <input type="checkbox" value="^F" class="rounded text-red-600"> ♯4
+                            </label>
+                            <label class="flex items-center gap-2 text-blue-600">
+                                <input type="checkbox" value="_G" class="rounded text-blue-600"> ♭5
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="G" class="rounded"> <span class="font-medium">5</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-red-600">
+                                <input type="checkbox" value="^G" class="rounded text-red-600"> ♯5
+                            </label>
+                            <label class="flex items-center gap-2 text-blue-600">
+                                <input type="checkbox" value="_A" class="rounded text-blue-600"> ♭6
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="A" class="rounded"> <span class="font-medium">6</span>
+                            </label>
+                             <label class="flex items-center gap-2 text-red-600">
+                                <input type="checkbox" value="^A" class="rounded text-red-600"> ♯6
+                            </label>
+                            <label class="flex items-center gap-2 text-blue-600">
+                                <input type="checkbox" value="_B" class="rounded text-blue-600"> ♭7
+                            </label>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="B" class="rounded"> <span class="font-medium">7</span>
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 items-center border-t pt-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" value="c" class="rounded"> <span class="font-medium">8</span> (High)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-4">
+                    <button type="button" id="generate-button" class="w-full px-6 py-3 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 transition-colors">
+                        Generate Exercise
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- 5.1 State ---
+        let audioContext;
+        let droneNode = null;
+        let micStream = null;
+        let analysisFrameId = null;
+        
+        // App settings
+        let settings = {
+            clef: 'treble',
+            key: 'C',
+            timeSignature: '4/4',
+            durations: [1, 2], // 1=eighth, 2=quarter
+            // **MODIFICATION**: Default 'allowedNotes' matches default checked boxes
+            allowedNotes: ['C', 'D', 'E'], // Default to 1, 2, 3
+            length: 8
+        };
+
+        // Note data for frequency calculation
+        const A4 = 440.0;
+        const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+        const keySignatures = {
+            // Key: [abcjs key, tonic frequency (octave 4)]
+            'C Major': ['C', 261.63],
+            'G Major': ['G', 392.00],
+            'D Major': ['D', 293.66],
+            'A Major': ['A', 440.00],
+            'E Major': ['E', 329.63],
+            'B Major': ['B', 493.88],
+            'F# Major': ['F#', 369.99],
+            'C# Major': ['C#', 277.18],
+            'F Major': ['F', 349.23],
+            'Bb Major': ['Bb', 466.16],
+            'Eb Major': ['Eb', 311.13],
+            'Ab Major': ['Ab', 415.30],
+            'Db Major': ['Db', 277.18],
+            'Gb Major': ['Gb', 369.99],
+            'Cb Major': ['Cb', 493.88],
+        };
+
+        // --- 5.2 DOM References ---
+        const droneToggle = document.getElementById('drone-toggle');
+        const tunerToggle = document.getElementById('tuner-toggle');
+        const settingsToggle = document.getElementById('settings-toggle');
+        const settingsModal = document.getElementById('settings-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const generateButton = document.getElementById('generate-button');
+        const staffDisplay = document.getElementById('staff-display');
+        const tunerBar = document.getElementById('tuner-bar');
+        const noteName = document.getElementById('note-name');
+        const pitchIndicator = document.getElementById('pitch-indicator');
+        
+        // Settings Inputs
+        const clefSelect = document.getElementById('clef-select');
+        const keySelect = document.getElementById('key-select');
+        const timeSigSelect = document.getElementById('time-sig-select');
+        const durationChecks = document.getElementById('duration-checks').querySelectorAll('input[type="checkbox"]');
+        const lengthInput = document.getElementById('length-input');
+        
+        // **MODIFICATION**: This ID now points to the new grid container
+        const noteSelectionChecks = document.getElementById('note-selection-checks').querySelectorAll('input[type="checkbox"]');
+
+
+        // --- 5.3 Core Logic (Tuner, Drone, Notation) ---
+
+        /**
+         * Initializes the AudioContext in response to a user gesture.
+         */
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        /**
+         * Populates the key signature select dropdown.
+         */
+        function populateKeySelect() {
+            Object.keys(keySignatures).forEach(keyName => {
+                const option = document.createElement('option');
+                option.value = keySignatures[keyName][0]; // e.g., 'C'
+                option.textContent = keyName;
+                if (keyName === 'C Major') {
+                    option.selected = true;
+                }
+                keySelect.appendChild(option);
+            });
+        }
+
+        /**
+         * Reads all values from the settings modal and updates the global `settings` object.
+         */
+        function updateSettingsFromDOM() {
+            settings.clef = clefSelect.value;
+            settings.key = keySelect.value;
+            settings.timeSignature = timeSigSelect.value;
+            settings.length = parseInt(lengthInput.value, 10);
+            
+            settings.durations = [];
+            durationChecks.forEach(check => {
+                if (check.checked) {
+                    settings.durations.push(parseInt(check.value, 10));
+                }
+            });
+            // Ensure at least one duration is selected
+            if (settings.durations.length === 0) {
+                durationChecks[0].checked = true;
+                settings.durations.push(parseInt(durationChecks[0].value, 10));
+            }
+
+            // **MODIFICATION**: Reads from the new 'noteSelectionChecks' grid.
+            // This logic is robust and requires no change.
+            settings.allowedNotes = [];
+            noteSelectionChecks.forEach(check => {
+                if (check.checked) {
+                    // 'C', 'D', '_E', '^F', etc.
+                    settings.allowedNotes.push(check.value); 
+                }
+            });
+            // Fallback: if none are checked, default to the tonic
+            if (settings.allowedNotes.length === 0) {
+                // Find the tonic checkbox ('C') and check it
+                const tonicCheckbox = Array.from(noteSelectionChecks).find(cb => cb.value === 'C');
+                if (tonicCheckbox) {
+                    tonicCheckbox.checked = true;
+                    settings.allowedNotes.push('C');
+                } else if (noteSelectionChecks.length > 0) {
+                    // Fallback if 'C' isn't found (shouldn't happen)
+                    noteSelectionChecks[0].checked = true;
+                    settings.allowedNotes.push(noteSelectionChecks[0].value);
+                }
+            }
+        }
+
+        /**
+         * Generates a pseudo-random melody string for abcjs.
+         */
+        function generateMelody() {
+            let abcString = `X:1\nT:Sight-Singing Exercise\nM:${settings.timeSignature}\nL:1/8\nK:${settings.key}\n[V:1 clef=${settings.clef}]\n`;
+            
+            const [beatsPerMeasure, beatUnit] = settings.timeSignature.split('/').map(Number);
+            const totalEighthsPerMeasure = (beatsPerMeasure / beatUnit) * 8;
+            const totalEighths = totalEighthsPerMeasure * settings.length;
+
+            // 'availableNotes' now contains all checked notes (e.g., ['C', 'D', 'E', '_E', '^F'])
+            const availableNotes = settings.allowedNotes;
+            
+            // Map settings durations (1=eighth, 2=quarter, 4=half) to abcjs syntax (L:1/8)
+            const durationMap = {
+                '1': '1', // Eighth note (1)
+                '2': '2', // Quarter note (2)
+                '4': '4', // Half note (4)
+            };
+            const availableDurations = settings.durations.map(d => durationMap[d]);
+
+            let currentEighths = 0;
+            let measureCount = 0;
+            let melody = [];
+            
+            // Start on the tonic (abcjs 'C' == tonic)
+            let lastNote = 'C';
+            // Ensure tonic is *actually* in the list. If not, pick the first available note.
+            if (!availableNotes.includes('C')) {
+                lastNote = availableNotes[0];
+            }
+            
+            let startDuration = '2'; // Start on a quarter note tonic
+            if (availableDurations.includes('2')) {
+                startDuration = '2';
+            } else {
+                startDuration = availableDurations[0]; // or first available
+            }
+
+            melody.push(lastNote + startDuration); 
+            currentEighths += parseInt(startDuration, 10); 
+
+            // Check if start note finishes a measure
+            if (currentEighths % totalEighthsPerMeasure === 0) {
+                measureCount++;
+                if (measureCount % 4 === 0 && currentEighths < totalEighths) {
+                    melody.push('|\n');
+                } else {
+                    melody.push('|');
+                }
+            }
+
+
+            while (currentEighths < totalEighths) {
+                const eighthsInMeasureSoFar = currentEighths % totalEighthsPerMeasure;
+                const eighthsLeftInMeasure = totalEighthsPerMeasure - eighthsInMeasureSoFar;
+                
+                const fittingDurations = availableDurations.filter(d => parseInt(d, 10) <= eighthsLeftInMeasure);
+
+                let nextDurationStr;
+                let nextDurationEighths;
+                
+                if (fittingDurations.length > 0) {
+                    nextDurationStr = fittingDurations[Math.floor(Math.random() * fittingDurations.length)];
+                    nextDurationEighths = parseInt(nextDurationStr, 10);
+
+                    // Pick a random note from the user-defined list
+                    let nextNote = availableNotes[Math.floor(Math.random() * availableNotes.length)];
+                    melody.push(nextNote + nextDurationStr);
+                } else {
+                    // No available duration fits. Fill measure with a rest.
+                    nextDurationEighths = eighthsLeftInMeasure;
+                    nextDurationStr = nextDurationEighths.toString();
+                    melody.push('z' + nextDurationStr); // 'z' is a rest (休符 / пауза)
+                }
+
+                currentEighths += nextDurationEighths;
+
+                // Add bar line if measure is full
+                if (currentEighths % totalEighthsPerMeasure === 0 && currentEighths < totalEighths) {
+                    measureCount++;
+                    if (measureCount % 4 === 0 && measureCount < settings.length) { 
+                        melody.push('|\n'); 
+                    } else {
+                        melody.push('|'); 
+                    }
+                }
+            }
+            
+            melody.push('|]'); // End bar
+            return abcString + melody.join(' ');
+        }
+
+
+        /**
+         * Renders the notation to the staff display area.
+         */
+        function renderNotation() {
+            try {
+                const abcString = generateMelody();
+                // We must use 'window.ABCJS' as it's loaded from the CDN
+                window.ABCJS.renderAbc(staffDisplay, abcString, { 
+                    responsive: "resize",
+                    add_classes: true 
+                });
+            } catch (error) {
+                console.error("Error rendering ABCJS notation:", error);
+                staffDisplay.innerHTML = `<p class="text-red-500">Error generating notation. Please check settings and try again.</p>`;
+            }
+        }
+
+        /**
+         * Starts the tonic drone (正弦波 / синусоїда).
+         */
+        function startDrone() {
+            if (droneNode) return; // Already playing
+            initAudioContext();
+            
+            const keyName = Object.keys(keySignatures).find(k => keySignatures[k][0] === settings.key) || 'C Major';
+            const frequency = keySignatures[keyName][1]; // Tonic (主音 / тоніка) frequency
+            
+            droneNode = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            droneNode.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            droneNode.type = 'sine';
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime); // Keep volume low
+            
+            droneNode.connect(gainNode).connect(audioContext.destination);
+            droneNode.start();
+            droneToggle.textContent = 'Stop Tonic';
+            droneToggle.classList.replace('bg-blue-500', 'bg-red-500');
+            droneToggle.classList.replace('hover:bg-blue-600', 'hover:bg-red-600');
+        }
+
+        /**
+         * Stops the tonic drone.
+         */
+        function stopDrone() {
+            if (droneNode) {
+                droneNode.stop();
+                droneNode.disconnect();
+                droneNode = null;
+                droneToggle.textContent = 'Play Tonic';
+                droneToggle.classList.replace('bg-red-500', 'bg-blue-500');
+                droneToggle.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
+            }
+        }
+
+        /**
+         * Starts the real-time pitch tuner.
+         */
+        async function startTuner() {
+            if (micStream) return;
+            initAudioContext();
+
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(micStream);
+                const analyser = audioContext.createAnalyserNode();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+
+                runPitchDetection(analyser);
+                
+                tunerBar.classList.remove('hidden');
+                tunerToggle.textContent = 'Stop Tuner';
+                tunerToggle.classList.replace('bg-green-500', 'bg-red-500');
+                tunerToggle.classList.replace('hover:bg-green-600', 'hover:bg-red-600');
+
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                tunerToggle.textContent = 'Mic Error';
+                setTimeout(() => {
+                    if (!micStream) tunerToggle.textContent = 'Start Tuner';
+                }, 2000);
+            }
+        }
+
+        /**
+         * Stops the real-time pitch tuner.
+         */
+        function stopTuner() {
+            if (analysisFrameId) {
+                cancelAnimationFrame(analysisFrameId);
+                analysisFrameId = null;
+            }
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+                micStream = null;
+            }
+            
+            tunerBar.classList.add('hidden');
+            tunerToggle.textContent = 'Start Tuner';
+            tunerToggle.classList.replace('bg-red-500', 'bg-green-500');
+            tunerToggle.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
+            
+            // Reset tuner display
+            noteName.textContent = '--';
+            pitchIndicator.style.transform = 'translateX(-50%) scaleX(0)';
+        }
+
+        /**
+         * The main pitch detection loop.
+         */
+        function runPitchDetection(analyser) {
+            const data = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(data);
+            
+            // We must use 'window.pitchy' as it's loaded from the CDN
+            const [pitch, clarity] = window.pitchy.findPitch(data, audioContext.sampleRate);
+            
+            if (clarity > 0.95) { // High confidence
+                const noteData = getNoteFromFrequency(pitch);
+                const cents = getCentsDeviation(pitch, noteData.frequency); // (セント / центи)
+                
+                noteName.textContent = noteData.name.replace('#', '♯');
+                
+                const translation = Math.max(-50, Math.min(50, cents)); 
+                const visualOffset = (translation / 50) * 50; // Map cents to % translation
+                
+                pitchIndicator.style.transform = `translateX(calc(-50% + ${visualOffset}%)) scaleX(1)`;
+                
+            } else {
+                noteName.textContent = '--';
+                pitchIndicator.style.transform = 'translateX(-50%) scaleX(0)'; // Hide
+            }
+            
+            analysisFrameId = requestAnimationFrame(() => runPitchDetection(analyser));
+        }
+
+        /**
+         * Helper: Converts a frequency to the nearest note name and octave.
+         */
+        function getNoteFromFrequency(frequency) {
+            const noteNumber = 12 * (Math.log(frequency / A4) / Math.log(2));
+            const noteIndex = (Math.round(noteNumber) + 69) % 12;
+            const octave = Math.floor((Math.round(noteNumber) + 69) / 12);
+            const note = noteNames[noteIndex];
+            const targetFrequency = A4 * Math.pow(2, (Math.round(noteNumber)) / 12);
+            return {
+                name: note + octave,
+                frequency: targetFrequency
+            };
+        }
+
+        /**
+         * Helper: Calculates the cents deviation from a target frequency.
+         */
+        function getCentsDeviation(frequency, targetFrequency) {
+            return 1200 * Math.log(frequency / targetFrequency) / Math.log(2);
+        }
+
+        // --- 5.4 Event Listeners ---
+        
+        function init() {
+            // Populate dynamic content
+            populateKeySelect();
+            
+            // Set initial state from DOM (for default values)
+            updateSettingsFromDOM();
+            
+            // Render default exercise on load
+            renderNotation();
+            
+            // Control Buttons
+            droneToggle.addEventListener('click', () => {
+                initAudioContext(); 
+                if (droneNode) {
+                    stopDrone();
+                } else {
+                    startDrone();
+                }
+            });
+            
+            tunerToggle.addEventListener('click', () => {
+                initAudioContext(); 
+                if (micStream) {
+                    stopTuner();
+                } else {
+                    startTuner();
+                }
+            });
+
+            // Settings Modal
+            settingsToggle.addEventListener('click', () => {
+                settingsModal.classList.remove('hidden');
+            });
+
+            closeModalBtn.addEventListener('click', () => {
+                settingsModal.classList.add('hidden');
+            });
+            
+            settingsModal.addEventListener('click', (e) => {
+                if (e.target === settingsModal) {
+                    settingsModal.classList.add('hidden');
+                }
+            });
+
+            // Generate Button
+            generateButton.addEventListener('click', () => {
+                updateSettingsFromDOM();
+                renderNotation();
+                settingsModal.classList.add('hidden');
+                
+                if (droneNode) {
+                    stopDrone();
+                    startDrone();
+                }
+            });
+        }
+        
+        document.addEventListener('DOMContentLoaded', init);
+
+    </script>
+</body>
+</html>
