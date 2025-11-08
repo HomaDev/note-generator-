@@ -8,85 +8,52 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script src="https://cdn.jsdelivr.net/npm/abcjs@6.2.0/dist/abcjs-basic-min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pitchy@4.0.5/dist/pitchy.min.js"></script>
-
     <style>
         /* Custom styles for the app */
         body {
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
         }
         
-        /* Custom Tuner Styles */
-        .tuner-meter {
-            position: relative;
-            width: 100%;
-            height: 20px;
-            background-color: #e0e7ff; /* bg-indigo-100 */
-            border-radius: 99px;
-            overflow: hidden;
-        }
-        .tuner-indicator {
-            position: absolute;
-            top: 0;
-            left: 50%;
-            width: 5px;
-            height: 100%;
-            background-color: #4f46e5; /* bg-indigo-600 */
-            border-radius: 99px;
-            transform: translateX(-50%) scaleX(0); /* Start hidden */
-            transition: transform 0.1s linear;
-            transform-origin: center;
-        }
-        /* Center "in-tune" line */
-        .tuner-meter::before {
-            content: '';
-            position: absolute;
-            left: 50%;
-            top: 0;
-            height: 100%;
-            width: 3px;
-            background-color: rgba(0, 0, 0, 0.2);
-            transform: translateX(-50%);
-        }
-
         /* Custom ABCJS Staff Styling */
         .abcjs-container svg {
             width: 100%;
             max-width: 100%;
             overflow-x: auto;
         }
+
+        /* NEW: Tuner Bar Transition for Smoothness */
+        #compact-tuner-bar {
+            transition: left 0.1s ease-out, background-color 0.2s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-700 min-h-screen">
 
-    <div class="container mx-auto p-4 max-w-4xl">
-
-        <main class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6 mt-6">
+    <div class="container mx-auto p-4 max-w-4xl"> <main class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6 mt-6">
             <div id="staff-display" class="w-full"></div>
         </main>
 
-        <div class="flex flex-wrap justify-center gap-3">
-            <button id="drone-toggle" class="px-5 py-2 bg-blue-500 text-white font-medium rounded-full shadow hover:bg-blue-600 transition-colors">
+        <div class="flex flex-wrap justify-center gap-3 items-center mb-6"> <button id="drone-toggle" class="px-5 py-2 bg-blue-500 text-white font-medium rounded-full shadow hover:bg-blue-600 transition-colors">
                 Play Tonic
-            </button>
-            <button id="tuner-toggle" class="px-5 py-2 bg-green-500 text-white font-medium rounded-full shadow hover:bg-green-600 transition-colors">
-                Start Tuner
             </button>
             <button id="settings-toggle" class="px-5 py-2 bg-gray-600 text-white font-medium rounded-full shadow hover:bg-gray-700 transition-colors">
                 Settings
             </button>
-        </div>
-    </div>
-
-    <div id="tuner-bar" class="fixed bottom-0 left-0 right-0 bg-white p-4 shadow-inner border-t border-slate-200 hidden">
-        <div class="container mx-auto max-w-md">
-            <div class="flex items-center gap-4">
-                <div id="note-name" class="text-3xl font-bold w-16 text-center text-indigo-600">--</div>
-                <div class="tuner-meter flex-1">
-                    <div id="pitch-indicator" class="tuner-indicator"></div>
+            
+            <div id="compact-tuner-container" class="bg-white p-3 rounded-full shadow border border-slate-200 flex items-center space-x-2">
+                <button id="tuner-toggle" class="px-4 py-1.5 bg-green-500 text-white text-sm font-medium rounded-full shadow hover:bg-green-600 transition-colors">
+                    Start Tuner
+                </button>
+                <div id="compact-tuner-display" class="flex items-center space-x-2 hidden">
+                    <div id="compact-note-name" class="text-xl font-bold text-slate-800 w-12 text-right">--</div>
+                    <div class="relative w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div class="absolute top-0 left-1/2 h-full w-0.5 bg-slate-500 -translate-x-1/2 z-10"></div>
+                        <div id="compact-tuner-bar" class="absolute top-0 h-full w-1 transition-all duration-75" style="left: 50%; transform: translateX(-50%); background-color: #ef4444;"></div>
+                    </div>
+                    <div id="compact-cents-deviation" class="text-sm text-slate-600 w-10 text-left">--</div>
                 </div>
             </div>
-        </div>
+            </div>
     </div>
 
     <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-50 overflow-y-auto">
@@ -121,7 +88,7 @@
                     </div>
                     <div>
                         <label for="length-input" class="block text-sm font-medium mb-1">Measures (小節 / такт)</label>
-                        <input type="number" id="length-input" value="16" min="2" max="16" class="w-full p-2 border border-slate-300 rounded-lg">
+                        <input type="number" id="length-input" value="12" min="2" max="16" class="w-full p-2 border border-slate-300 rounded-lg">
                     </div>
                 </div>
 
@@ -230,27 +197,30 @@
     <script type="module">
         // --- 5.1 State ---
         let audioContext;
-        // **MODIFICATION START**: Variables for "pad" drone
         let droneNodes = []; // Will hold our oscillators
         let droneGainNode = null; // Master gain for the pad
-        // **MODIFICATION END**
+        
+        // Tuner State
         let micStream = null;
         let analysisFrameId = null;
+        let analyserNode = null;
+        let audioBuffer = null;
+        let isTunerActive = false;
         
         // App settings
         let settings = {
             clef: 'treble',
             key: 'C',
             timeSignature: '4/4',
-            // **MODIFICATION**: Defaults updated
             durations: [2], // 2=quarter
             allowedNotes: ['C', 'D', 'E'], // Default to 1, 2, 3
             length: 16 // Default to 16
         };
 
         // Note data for frequency calculation
-        const A4 = 440.0;
-        const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+        const A4 = 440;
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        
         const keySignatures = {
             // Key: [abcjs key, tonic frequency (octave 4)]
             'C Major': ['C', 261.63],
@@ -272,16 +242,19 @@
 
         // --- 5.2 DOM References ---
         const droneToggle = document.getElementById('drone-toggle');
-        const tunerToggle = document.getElementById('tuner-toggle');
         const settingsToggle = document.getElementById('settings-toggle');
         const settingsModal = document.getElementById('settings-modal');
         const closeModalBtn = document.getElementById('close-modal-btn');
         const generateButton = document.getElementById('generate-button');
         const staffDisplay = document.getElementById('staff-display');
-        const tunerBar = document.getElementById('tuner-bar');
-        const noteName = document.getElementById('note-name');
-        const pitchIndicator = document.getElementById('pitch-indicator');
-        
+
+        // NEW: Compact Tuner DOM References
+        const tunerToggle = document.getElementById('tuner-toggle');
+        const compactTunerDisplay = document.getElementById('compact-tuner-display');
+        const compactNoteName = document.getElementById('compact-note-name');
+        const compactCentsDeviation = document.getElementById('compact-cents-deviation');
+        const compactTunerBar = document.getElementById('compact-tuner-bar');
+
         // Settings Inputs
         const clefSelect = document.getElementById('clef-select');
         const keySelect = document.getElementById('key-select');
@@ -289,11 +262,10 @@
         const durationChecks = document.getElementById('duration-checks').querySelectorAll('input[type="checkbox"]');
         const lengthInput = document.getElementById('length-input');
         
-        // This selector still works, as it finds all checkboxes inside the container
         const noteSelectionChecks = document.getElementById('note-selection-checks').querySelectorAll('input[type="checkbox"]');
 
 
-        // --- 5.3 Core Logic (Tuner, Drone, Notation) ---
+        // --- 5.3 Core Logic (Drone, Notation) ---
 
         /**
          * Initializes the AudioContext in response to a user gesture.
@@ -334,9 +306,8 @@
                     settings.durations.push(parseInt(check.value, 10));
                 }
             });
-            // Ensure at least one duration is selected
+            
             if (settings.durations.length === 0) {
-                // **MODIFICATION**: Default to Quarter note (value '2') if none selected
                 const quarterCheckbox = Array.from(durationChecks).find(cb => cb.value === '2');
                 if (quarterCheckbox) {
                     quarterCheckbox.checked = true;
@@ -347,24 +318,20 @@
                 }
             }
 
-            // This logic is layout-agnostic and still works perfectly.
             settings.allowedNotes = [];
             noteSelectionChecks.forEach(check => {
                 if (check.checked) {
-                    // 'C', 'D', '_E', '^F', etc.
                     settings.allowedNotes.push(check.value); 
                 }
             });
             
             // Fallback: if none are checked, default to the tonic
             if (settings.allowedNotes.length === 0) {
-                // Find the tonic checkbox ('C') and check it
                 const tonicCheckbox = Array.from(noteSelectionChecks).find(cb => cb.value === 'C');
                 if (tonicCheckbox) {
                     tonicCheckbox.checked = true;
                     settings.allowedNotes.push('C');
                 } else if (noteSelectionChecks.length > 0) {
-                    // Fallback if 'C' isn't found
                     noteSelectionChecks[0].checked = true;
                     settings.allowedNotes.push(noteSelectionChecks[0].value);
                 }
@@ -394,14 +361,12 @@
             let measureCount = 0;
             let melody = [];
             
-            // Start on the tonic (abcjs 'C' == tonic)
             let lastNote = 'C';
-            // Ensure tonic is *actually* in the list. If not, pick the first available note.
             if (!availableNotes.includes('C')) {
                 lastNote = availableNotes[0];
             }
             
-            let startDuration = '2'; // Start on a quarter note tonic
+            let startDuration = '2'; // Default to quarter note
             if (availableDurations.includes('2')) {
                 startDuration = '2';
             } else {
@@ -411,7 +376,6 @@
             melody.push(lastNote + startDuration); 
             currentEighths += parseInt(startDuration, 10); 
 
-            // Check if start note finishes a measure
             if (currentEighths % totalEighthsPerMeasure === 0) {
                 measureCount++;
                 if (measureCount % 4 === 0 && currentEighths < totalEighths) {
@@ -435,11 +399,9 @@
                     nextDurationStr = fittingDurations[Math.floor(Math.random() * fittingDurations.length)];
                     nextDurationEighths = parseInt(nextDurationStr, 10);
 
-                    // Pick a random note from the user-defined list
                     let nextNote = availableNotes[Math.floor(Math.random() * availableNotes.length)];
                     melody.push(nextNote + nextDurationStr);
                 } else {
-                    // No available duration fits. Fill measure with a rest.
                     nextDurationEighths = eighthsLeftInMeasure;
                     nextDurationStr = nextDurationEighths.toString();
                     melody.push('z' + nextDurationStr); // 'z' is a rest (休符 / пауза)
@@ -447,7 +409,6 @@
 
                 currentEighths += nextDurationEighths;
 
-                // Add bar line if measure is full
                 if (currentEighths % totalEighthsPerMeasure === 0 && currentEighths < totalEighths) {
                     measureCount++;
                     if (measureCount % 4 === 0 && measureCount < settings.length) { 
@@ -469,7 +430,6 @@
         function renderNotation() {
             try {
                 const abcString = generateMelody();
-                // We must use 'window.ABCJS' as it's loaded from the CDN
                 window.ABCJS.renderAbc(staffDisplay, abcString, { 
                     responsive: "resize",
                     add_classes: true 
@@ -480,7 +440,6 @@
             }
         }
 
-        // **MODIFICATION START**: "Pad" drone logic
         /**
          * Starts the tonic "pad" drone.
          */
@@ -489,7 +448,8 @@
             initAudioContext();
             
             const keyName = Object.keys(keySignatures).find(k => keySignatures[k][0] === settings.key) || 'C Major';
-            const frequency = keySignatures[keyName][1]; // Tonic (主音 / тоніка) frequency
+            
+            const baseFrequency = keySignatures[keyName][1] / 2.0; // Tonic (主音 / тоніка) frequency
             
             // 1. Create master gain and filter
             droneGainNode = audioContext.createGain();
@@ -505,7 +465,7 @@
             detuneValues.forEach(detune => {
                 const osc = audioContext.createOscillator();
                 osc.type = 'sawtooth'; // (ノコギリ波 / пилкоподібна хвиля) for a rich sound
-                osc.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                osc.frequency.setValueAtTime(baseFrequency, audioContext.currentTime);
                 osc.detune.setValueAtTime(detune, audioContext.currentTime);
                 
                 osc.connect(droneGainNode); // Connect to the gain node
@@ -545,113 +505,215 @@
             droneToggle.classList.replace('bg-red-500', 'bg-blue-500');
             droneToggle.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
         }
-        // **MODIFICATION END**
+
+
+        // --- 5.4 Pitch Detection Logic (UNCHANGED, except UI updates) ---
 
         /**
-         * Starts the real-time pitch tuner.
+         * Starts the microphone and pitch detection.
          */
         async function startTuner() {
-            if (micStream) return;
+            if (isTunerActive) return;
             initAudioContext();
-
+            
             try {
                 micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioContext.createMediaStreamSource(micStream);
-                const analyser = audioContext.createAnalyserNode();
-                analyser.fftSize = 2048;
-                source.connect(analyser);
-
-                runPitchDetection(analyser);
-                
-                tunerBar.classList.remove('hidden');
-                tunerToggle.textContent = 'Stop Tuner';
-                tunerToggle.classList.replace('bg-green-500', 'bg-red-500');
-                tunerToggle.classList.replace('hover:bg-green-600', 'hover:bg-red-600');
-
             } catch (err) {
-                console.error('Error accessing microphone:', err);
-                tunerToggle.textContent = 'Mic Error';
-                setTimeout(() => {
-                    if (!micStream) tunerToggle.textContent = 'Start Tuner';
-                }, 2000);
+                console.error("Error getting microphone access:", err);
+                alert("Microphone access denied. Please allow access to use the tuner."); // Simple alert for compact mode
+                return;
             }
+            
+            const source = audioContext.createMediaStreamSource(micStream);
+            analyserNode = audioContext.createAnalyser();
+            analyserNode.fftSize = 4096; // Larger size for better low-frequency resolution
+            
+            audioBuffer = new Float32Array(analyserNode.fftSize);
+            source.connect(analyserNode);
+            
+            isTunerActive = true;
+            runPitchDetection();
+
+            // Update UI for compact tuner
+            tunerToggle.textContent = 'Stop Tuner';
+            tunerToggle.classList.replace('bg-green-500', 'bg-red-500');
+            tunerToggle.classList.replace('hover:bg-green-600', 'hover:bg-red-600');
+            compactTunerDisplay.classList.remove('hidden'); // Show tuner info
         }
 
         /**
-         * Stops the real-time pitch tuner.
+         * Stops the microphone and pitch detection.
          */
         function stopTuner() {
+            if (!isTunerActive) return;
+            
             if (analysisFrameId) {
                 cancelAnimationFrame(analysisFrameId);
-                analysisFrameId = null;
             }
             if (micStream) {
                 micStream.getTracks().forEach(track => track.stop());
-                micStream = null;
             }
             
-            tunerBar.classList.add('hidden');
+            micStream = null;
+            analyserNode = null;
+            audioBuffer = null;
+            isTunerActive = false;
+            
+            // Update UI for compact tuner
             tunerToggle.textContent = 'Start Tuner';
             tunerToggle.classList.replace('bg-red-500', 'bg-green-500');
             tunerToggle.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
-            
-            // Reset tuner display
-            noteName.textContent = '--';
-            pitchIndicator.style.transform = 'translateX(-50%) scaleX(0)';
+            compactTunerDisplay.classList.add('hidden'); // Hide tuner info
+            // Reset tuner display on stop
+            updateTunerUI('--', 0); 
         }
 
         /**
-         * The main pitch detection loop.
+         * The main animation loop for detecting and displaying pitch.
          */
-        function runPitchDetection(analyser) {
-            const data = new Float32Array(analyser.fftSize);
-            analyser.getFloatTimeDomainData(data);
+        function runPitchDetection() {
+            if (!analyserNode) return;
             
-            // We must use 'window.pitchy' as it's loaded from the CDN
-            const [pitch, clarity] = window.pitchy.findPitch(data, audioContext.sampleRate);
+            analyserNode.getFloatTimeDomainData(audioBuffer);
+            const freq = findFundamentalFreq(audioBuffer, audioContext.sampleRate);
             
-            if (clarity > 0.95) { // High confidence
-                const noteData = getNoteFromFrequency(pitch);
-                const cents = getCentsDeviation(pitch, noteData.frequency); // (セント / центи)
-                
-                noteName.textContent = noteData.name.replace('#', '♯');
-                
-                const translation = Math.max(-50, Math.min(50, cents)); 
-                const visualOffset = (translation / 50) * 50; // Map cents to % translation
-                
-                pitchIndicator.style.transform = `translateX(calc(-50% + ${visualOffset}%)) scaleX(1)`;
-                
+            if (freq > 0) {
+                const midiNote = getMidiNoteFromFrequency(freq);
+                const noteStr = getNoteString(midiNote);
+                const cents = getCentsDeviation(freq, midiNote);
+                updateTunerUI(noteStr, cents); // Simplified UI call
             } else {
-                noteName.textContent = '--';
-                pitchIndicator.style.transform = 'translateX(-50%) scaleX(0)'; // Hide
+                // No clear pitch, reset UI
+                updateTunerUI('--', 0); // Simplified UI call
             }
             
-            analysisFrameId = requestAnimationFrame(() => runPitchDetection(analyser));
+            analysisFrameId = requestAnimationFrame(runPitchDetection);
         }
 
         /**
-         * Helper: Converts a frequency to the nearest note name and octave.
+         * Updates the compact tuner display elements.
+         * Removed freqStr as it's no longer displayed.
          */
-        function getNoteFromFrequency(frequency) {
-            const noteNumber = 12 * (Math.log(frequency / A4) / Math.log(2));
-            const noteIndex = (Math.round(noteNumber) + 69) % 12;
-            const octave = Math.floor((Math.round(noteNumber) + 69) / 12);
-            const note = noteNames[noteIndex];
-            const targetFrequency = A4 * Math.pow(2, (Math.round(noteNumber)) / 12);
-            return {
-                name: note + octave,
-                frequency: targetFrequency
-            };
+        function updateTunerUI(noteStr, centsVal) {
+            compactNoteName.textContent = noteStr;
+            compactCentsDeviation.textContent = centsVal.toFixed(0);
+
+            // Update bar position
+            // Map -50 cents (flat) to 0% left, +50 cents (sharp) to 100% left
+            const barPositionPercent = 50 + centsVal; 
+            compactTunerBar.style.left = `${Math.max(0, Math.min(100, barPositionPercent))}%`;
+            
+            // Update bar color
+            if (Math.abs(centsVal) < 10) {
+                compactTunerBar.style.backgroundColor = '#22c55e'; // green-500
+            } else if (Math.abs(centsVal) < 25) {
+                compactTunerBar.style.backgroundColor = '#eab308'; // yellow-500
+            } else {
+                compactTunerBar.style.backgroundColor = '#ef4444'; // red-500
+            }
         }
 
         /**
-         * Helper: Calculates the cents deviation from a target frequency.
+         * Converts a frequency (Hz) to a MIDI note number.
          */
-        function getCentsDeviation(frequency, targetFrequency) {
-            return 1200 * Math.log(frequency / targetFrequency) / Math.log(2);
+        function getMidiNoteFromFrequency(freq) {
+            return Math.round(12 * (Math.log2(freq / A4)) + 69);
         }
 
-        // --- 5.4 Event Listeners ---
+        /**
+         * Converts a MIDI note number to its standard frequency (Hz).
+         */
+        function getFrequencyFromMidiNote(midiNote) {
+            return A4 * Math.pow(2, (midiNote - 69) / 12);
+        }
+
+        /**
+         * Converts a MIDI note number to a note string (e.g., "A4").
+         */
+        function getNoteString(midiNote) {
+            const octave = Math.floor(midiNote / 12) - 1;
+            const noteIndex = midiNote % 12;
+            return noteNames[noteIndex] + octave;
+        }
+
+        /**
+         * Calculates the deviation in cents from the nearest perfect note.
+         */
+        function getCentsDeviation(freq, midiNote) {
+            const correctFreq = getFrequencyFromMidiNote(midiNote);
+            const cents = 1200 * Math.log2(freq / correctFreq);
+            // Clamp between -50 and +50
+            return Math.max(-50, Math.min(50, cents));
+        }
+
+        /**
+         * Finds the fundamental frequency using an autocorrelation method.
+         */
+        function findFundamentalFreq(buffer, sampleRate) {
+            const bufferSize = buffer.length;
+            const rms = Math.sqrt(buffer.reduce((acc, val) => acc + val * val, 0) / bufferSize);
+
+            // 1. Check for silence (amplitude threshold)
+            if (rms < 0.01) { // Adjusted sensitivity slightly
+                return -1;
+            }
+
+            // 2. Limit search range for human voice
+            const minSamples = Math.floor(sampleRate / 1500); // Max freq: ~1500 Hz
+            const maxSamples = Math.floor(sampleRate / 60);  // Min freq: ~60 Hz
+            let bestPeriod = 0;
+            let bestCorrelation = 0;
+            
+            let correlation = new Float32Array(bufferSize); // Correctly declare and fill
+
+            // 3. Autocorrelation
+            for (let lag = minSamples; lag <= maxSamples; lag++) {
+                let sum = 0;
+                for (let i = 0; i < bufferSize - lag; i++) {
+                    sum += buffer[i] * buffer[i + lag];
+                }
+                
+                let variance = 0;
+                for (let i = 0; i < bufferSize - lag; i++) {
+                    variance += buffer[i] * buffer[i];
+                }
+                
+                let normalizedSum = sum / Math.sqrt(variance);
+                
+                correlation[lag] = normalizedSum; // Populate correlation array
+
+                if (normalizedSum > bestCorrelation) {
+                    bestCorrelation = normalizedSum;
+                    bestPeriod = lag;
+                }
+            }
+
+            // 4. Check for a clear correlation
+            if (bestCorrelation < 0.85) { // Confidence threshold
+                return -1;
+            }
+            
+            // 5. Parabolic interpolation for better (sub-sample) peak accuracy
+            if (bestPeriod <= minSamples || bestPeriod >= maxSamples - 1 || bestPeriod === 0) {
+                return sampleRate / bestPeriod; 
+            }
+            
+            const y1 = correlation[bestPeriod - 1]; 
+            const y2 = correlation[bestPeriod];     
+            const y3 = correlation[bestPeriod + 1]; 
+
+            const d = (y3 - y1) / (2 * (2 * y2 - y1 - y3));
+
+            if (!isFinite(d)) {
+                return sampleRate / bestPeriod; 
+            }
+
+            const refinedPeriod = bestPeriod + d;
+            return sampleRate / refinedPeriod;
+        }
+
+
+        // --- 5.5 Event Listeners ---
         
         function init() {
             // Populate dynamic content
@@ -666,7 +728,6 @@
             // Control Buttons
             droneToggle.addEventListener('click', () => {
                 initAudioContext(); 
-                // **MODIFICATION**: Check array length for pad
                 if (droneNodes.length > 0) {
                     stopDrone();
                 } else {
@@ -674,9 +735,9 @@
                 }
             });
             
+            // Tuner Toggle Event Listener
             tunerToggle.addEventListener('click', () => {
-                initAudioContext(); 
-                if (micStream) {
+                if (isTunerActive) {
                     stopTuner();
                 } else {
                     startTuner();
@@ -704,7 +765,7 @@
                 renderNotation();
                 settingsModal.classList.add('hidden');
                 
-                // **MODIFICATION**: Check array length and update drone
+                // If drone is playing, restart it with the new key
                 if (droneNodes.length > 0) {
                     stopDrone();
                     startDrone();
