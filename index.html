@@ -61,7 +61,7 @@
 
     <div class="container mx-auto p-4 max-w-4xl">
 
-        <main class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <main class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6 mt-6">
             <div id="staff-display" class="w-full"></div>
         </main>
 
@@ -230,7 +230,10 @@
     <script type="module">
         // --- 5.1 State ---
         let audioContext;
-        let droneNode = null;
+        // **MODIFICATION START**: Variables for "pad" drone
+        let droneNodes = []; // Will hold our oscillators
+        let droneGainNode = null; // Master gain for the pad
+        // **MODIFICATION END**
         let micStream = null;
         let analysisFrameId = null;
         
@@ -239,9 +242,10 @@
             clef: 'treble',
             key: 'C',
             timeSignature: '4/4',
-            durations: [1, 2], // 1=eighth, 2=quarter
+            // **MODIFICATION**: Defaults updated
+            durations: [2], // 2=quarter
             allowedNotes: ['C', 'D', 'E'], // Default to 1, 2, 3
-            length: 8
+            length: 16 // Default to 16
         };
 
         // Note data for frequency calculation
@@ -332,8 +336,15 @@
             });
             // Ensure at least one duration is selected
             if (settings.durations.length === 0) {
-                durationChecks[0].checked = true;
-                settings.durations.push(parseInt(durationChecks[0].value, 10));
+                // **MODIFICATION**: Default to Quarter note (value '2') if none selected
+                const quarterCheckbox = Array.from(durationChecks).find(cb => cb.value === '2');
+                if (quarterCheckbox) {
+                    quarterCheckbox.checked = true;
+                    settings.durations.push(2);
+                } else if (durationChecks.length > 0) { // Fallback
+                    durationChecks[0].checked = true;
+                    settings.durations.push(parseInt(durationChecks[0].value, 10));
+                }
             }
 
             // This logic is layout-agnostic and still works perfectly.
@@ -469,43 +480,72 @@
             }
         }
 
+        // **MODIFICATION START**: "Pad" drone logic
         /**
-         * Starts the tonic drone (正弦波 / синусоїда).
+         * Starts the tonic "pad" drone.
          */
         function startDrone() {
-            if (droneNode) return; // Already playing
+            if (droneNodes.length > 0) return; // Already playing
             initAudioContext();
             
             const keyName = Object.keys(keySignatures).find(k => keySignatures[k][0] === settings.key) || 'C Major';
             const frequency = keySignatures[keyName][1]; // Tonic (主音 / тоніка) frequency
             
-            droneNode = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
+            // 1. Create master gain and filter
+            droneGainNode = audioContext.createGain();
+            const filterNode = audioContext.createBiquadFilter();
+            filterNode.type = 'lowpass'; // (ローパスフィルター / фільтр низьких частот)
+            filterNode.frequency.setValueAtTime(800, audioContext.currentTime); // Cut off harsh highs
             
-            droneNode.frequency.setValueAtTime(frequency, audioContext.currentTime);
-            droneNode.type = 'sine';
-            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime); // Keep volume low
+            droneGainNode.connect(filterNode).connect(audioContext.destination);
+
+            // 2. Create oscillators
+            const detuneValues = [-5, 0, 5]; // Detune (デチューン / розстроювання) in cents
             
-            droneNode.connect(gainNode).connect(audioContext.destination);
-            droneNode.start();
+            detuneValues.forEach(detune => {
+                const osc = audioContext.createOscillator();
+                osc.type = 'sawtooth'; // (ノコギリ波 / пилкоподібна хвиля) for a rich sound
+                osc.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                osc.detune.setValueAtTime(detune, audioContext.currentTime);
+                
+                osc.connect(droneGainNode); // Connect to the gain node
+                osc.start();
+                droneNodes.push(osc);
+            });
+
+            // 3. Apply Attack (fade-in)
+            droneGainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            droneGainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.5); // Fade to 10% volume
+            
             droneToggle.textContent = 'Stop Tonic';
             droneToggle.classList.replace('bg-blue-500', 'bg-red-500');
             droneToggle.classList.replace('hover:bg-blue-600', 'hover:bg-red-600');
         }
 
         /**
-         * Stops the tonic drone.
+         * Stops the tonic "pad" drone with a fade-out.
          */
         function stopDrone() {
-            if (droneNode) {
-                droneNode.stop();
-                droneNode.disconnect();
-                droneNode = null;
-                droneToggle.textContent = 'Play Tonic';
-                droneToggle.classList.replace('bg-red-500', 'bg-blue-500');
-                droneToggle.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
-            }
+            if (!droneGainNode) return;
+            
+            // 1. Apply Release (fade-out)
+            const releaseTime = audioContext.currentTime + 1.0; // 1 second fade-out
+            droneGainNode.gain.linearRampToValueAtTime(0, releaseTime);
+            
+            // 2. Stop oscillators after the fade-out is complete
+            droneNodes.forEach(osc => {
+                osc.stop(releaseTime);
+            });
+            
+            // 3. Clean up
+            droneNodes = [];
+            droneGainNode = null;
+            
+            droneToggle.textContent = 'Play Tonic';
+            droneToggle.classList.replace('bg-red-500', 'bg-blue-500');
+            droneToggle.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
         }
+        // **MODIFICATION END**
 
         /**
          * Starts the real-time pitch tuner.
@@ -626,7 +666,8 @@
             // Control Buttons
             droneToggle.addEventListener('click', () => {
                 initAudioContext(); 
-                if (droneNode) {
+                // **MODIFICATION**: Check array length for pad
+                if (droneNodes.length > 0) {
                     stopDrone();
                 } else {
                     startDrone();
@@ -663,7 +704,8 @@
                 renderNotation();
                 settingsModal.classList.add('hidden');
                 
-                if (droneNode) {
+                // **MODIFICATION**: Check array length and update drone
+                if (droneNodes.length > 0) {
                     stopDrone();
                     startDrone();
                 }
